@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from models.resnet import ResNet18
+from model.resnet import ResNet18
 
 
 key = jax.random.PRNGKey(0)
