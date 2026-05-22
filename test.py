@@ -150,6 +150,8 @@ def main():
     print(args)
     print("JAX devices:", jax.devices())
 
+    args.checkpoint_dir = os.path.abspath(args.checkpoint_dir)
+    
     if not os.path.exists(args.checkpoint_dir):
         raise FileNotFoundError(
             f"Checkpoint directory not found: {args.checkpoint_dir}. "

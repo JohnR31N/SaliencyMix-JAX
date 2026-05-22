@@ -295,8 +295,12 @@ def main():
 
     best_test_acc = 0.0
 
+    args.checkpoint_dir = os.path.abspath(args.checkpoint_dir)
+
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     checkpointer = ocp.PyTreeCheckpointer()
+
+    print(f"checkpoint_dir: {args.checkpoint_dir}")
 
     train_total = (len(train_images) + args.batch_size - 1) // args.batch_size
     test_total = (len(test_images) + args.batch_size - 1) // args.batch_size
