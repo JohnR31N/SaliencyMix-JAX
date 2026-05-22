@@ -1,6 +1,11 @@
 import argparse
 import csv
 import os
+import time
+
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 import numpy as np
 from tqdm import tqdm
@@ -377,6 +382,76 @@ def create_train_state(
     return state
 
 
+
+# -------------------------
+# Plot utils
+# -------------------------
+
+def save_training_plots(history, figure_dir):
+    """
+    Save epoch-wise training curves to figure_dir.
+    Time is intentionally not plotted; it is printed approximately in logs.
+    """
+    os.makedirs(figure_dir, exist_ok=True)
+
+    epochs = history["epoch"]
+
+    def save_plot(y_keys, labels, title, ylabel, filename):
+        plt.figure()
+        for y_key, label in zip(y_keys, labels):
+            plt.plot(epochs, history[y_key], marker="o", label=label)
+        plt.xlabel("Epoch")
+        plt.ylabel(ylabel)
+        plt.title(title)
+        plt.legend()
+        plt.grid(True, alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(os.path.join(figure_dir, filename), dpi=200)
+        plt.close()
+
+    save_plot(
+        ["train_loss", "test_loss"],
+        ["Train Loss", "Test Loss"],
+        "Loss vs Epoch",
+        "Loss",
+        "loss_curve.png",
+    )
+
+    save_plot(
+        ["train_acc", "test_acc"],
+        ["Train Accuracy", "Test Accuracy"],
+        "Accuracy vs Epoch",
+        "Accuracy (%)",
+        "accuracy_curve.png",
+    )
+
+    save_plot(
+        ["test_error"],
+        ["Test Error"],
+        "Test Error vs Epoch",
+        "Test Error (%)",
+        "test_error_curve.png",
+    )
+
+    save_plot(
+        ["best_test_acc"],
+        ["Best Test Accuracy"],
+        "Best Test Accuracy vs Epoch",
+        "Accuracy (%)",
+        "best_test_accuracy_curve.png",
+    )
+
+    save_plot(
+        ["mean_lam"],
+        ["Mean Lambda"],
+        "Mean Lambda vs Epoch",
+        "Lambda",
+        "mean_lambda_curve.png",
+    )
+
+    print(f"Saved plots to: {figure_dir}")
+
+
 # -------------------------
 # Main
 # -------------------------
@@ -400,6 +475,7 @@ def main():
         help="Use RandomCrop(32, padding=4) and RandomHorizontalFlip.",
     )
     parser.add_argument("--log_dir", type=str, default="logs")
+    parser.add_argument("--figure_dir", type=str, default="figures")
     parser.add_argument(
         "--checkpoint_dir",
         type=str,
@@ -435,9 +511,11 @@ def main():
 
     args.checkpoint_dir = os.path.abspath(args.checkpoint_dir)
     args.log_dir = os.path.abspath(args.log_dir)
+    args.figure_dir = os.path.abspath(args.figure_dir)
 
     os.makedirs(args.checkpoint_dir, exist_ok=True)
     os.makedirs(args.log_dir, exist_ok=True)
+    os.makedirs(args.figure_dir, exist_ok=True)
 
     checkpointer = ocp.PyTreeCheckpointer()
 
@@ -455,8 +533,11 @@ def main():
             "train_acc",
             "test_loss",
             "test_acc",
+            "test_error",
             "best_test_acc",
             "mean_lam",
+            "epoch_time_sec",
+            "total_time_sec",
             "seed",
             "data_augmentation",
             "learning_rate",
@@ -469,12 +550,27 @@ def main():
 
     print(f"checkpoint_dir: {args.checkpoint_dir}")
     print(f"logging to: {csv_path}")
+    print(f"figures will be saved to: {args.figure_dir}")
 
     train_total = (len(train_images) + args.batch_size - 1) // args.batch_size
     test_total = (len(test_images) + args.batch_size - 1) // args.batch_size
 
+    history = {
+        "epoch": [],
+        "train_loss": [],
+        "train_acc": [],
+        "test_loss": [],
+        "test_acc": [],
+        "test_error": [],
+        "best_test_acc": [],
+        "mean_lam": [],
+    }
+
+    total_start_time = time.time()
+
     try:
         for epoch in range(args.epochs):
+            epoch_start_time = time.time()
             print(f"\nEpoch {epoch + 1}/{args.epochs}")
 
             train_losses = []
@@ -543,13 +639,20 @@ def main():
             mean_lam = float(np.mean(train_lams))
             test_loss = float(np.mean(test_losses))
             test_acc = float(np.mean(test_accs) * 100.0)
+            test_error = 100.0 - test_acc
+
+            epoch_time = time.time() - epoch_start_time
+            total_time = time.time() - total_start_time
 
             print(
                 f"Epoch {epoch + 1}: "
                 f"train_loss={train_loss:.4f}, "
                 f"train_acc={train_acc:.2f}, "
                 f"test_loss={test_loss:.4f}, "
-                f"test_acc={test_acc:.2f}"
+                f"test_acc={test_acc:.2f}, "
+                f"test_error={test_error:.2f}, "
+                f"epoch_time≈{epoch_time / 60:.2f} min, "
+                f"total_time≈{total_time / 60:.2f} min"
             )
 
             if test_acc > best_test_acc:
@@ -563,6 +666,15 @@ def main():
 
                 print(f"saved best checkpoint to {args.checkpoint_dir}")
 
+            history["epoch"].append(epoch + 1)
+            history["train_loss"].append(train_loss)
+            history["train_acc"].append(train_acc)
+            history["test_loss"].append(test_loss)
+            history["test_acc"].append(test_acc)
+            history["test_error"].append(test_error)
+            history["best_test_acc"].append(float(best_test_acc))
+            history["mean_lam"].append(mean_lam)
+
             csv_writer.writerow(
                 {
                     "epoch": epoch + 1,
@@ -570,8 +682,11 @@ def main():
                     "train_acc": train_acc,
                     "test_loss": test_loss,
                     "test_acc": test_acc,
+                    "test_error": test_error,
                     "best_test_acc": float(best_test_acc),
                     "mean_lam": mean_lam,
+                    "epoch_time_sec": float(epoch_time),
+                    "total_time_sec": float(total_time),
                     "seed": args.seed,
                     "data_augmentation": args.data_augmentation,
                     "learning_rate": args.learning_rate,
@@ -587,7 +702,11 @@ def main():
     finally:
         csv_file.close()
 
-    print("Training finished.")
+    if len(history["epoch"]) > 0:
+        save_training_plots(history, args.figure_dir)
+
+    final_total_time = time.time() - total_start_time
+    print(f"Training finished. Approx total time: {final_total_time / 60:.2f} min ({final_total_time:.1f} sec).")
 
 
 if __name__ == "__main__":
