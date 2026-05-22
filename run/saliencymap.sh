@@ -6,4 +6,8 @@ cd "$(dirname "$0")/.."
 
 export PYTHONPATH=.
 
-python scripts/saliencymap.py
+DATASET=${1:-cifar10}
+
+python scripts/saliencymap.py \
+  --dataset ${DATASET} \
+  --data_dir data
