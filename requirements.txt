@@ -1,0 +1,10 @@
+jax
+jaxlib
+flax
+optax
+numpy
+opencv-contrib-python
+tqdm
+tensorflow-datasets
+torch
+torchvision

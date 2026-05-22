@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Data
+data/
+*.npy
+*.npz
+*.pkl
+
+# Model checkpoints
+checkpoints/
+*.pt
+*.pth
+*.ckpt
+
+# Logs
+logs/
+*.log
+*.csv
+best_accuracy.txt
+
+# Mac
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
