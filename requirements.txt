@@ -9,3 +9,4 @@ tensorflow-datasets
 torch
 torchvision
 orbax-checkpoint
+panda
