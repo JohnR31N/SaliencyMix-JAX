@@ -277,10 +277,10 @@ def create_train_state(key, dataset, model_name, learning_rate, momentum, weight
     )
 
 
-def save_training_plots(history, figure_dir, dataset, model_name, seed):
+def save_training_plots(history, figure_dir, method, seed):
     os.makedirs(figure_dir, exist_ok=True)
     epochs = history["epoch"]
-    prefix = f"{dataset}_{model_name}_seed{seed}"
+    prefix = f"{method}_seed{seed}"
 
     def save_plot(y_keys, labels, title, ylabel, filename):
         plt.figure()
@@ -303,8 +303,8 @@ def save_training_plots(history, figure_dir, dataset, model_name, seed):
     print(f"Saved plots to: {figure_dir}")
 
 
-def default_checkpoint_dir(dataset, model, seed):
-    return f"checkpoints/{dataset}_{model}_saliencymix_seed{seed}"
+def default_checkpoint_dir(dataset, model, method, seed):
+    return f"checkpoints/{model}/{dataset}/{method}_seed{seed}"
 
 
 def main():
@@ -312,6 +312,7 @@ def main():
 
     parser.add_argument("--dataset", type=str, default="cifar10", choices=["cifar10", "cifar100", "svhn"])
     parser.add_argument("--model", type=str, default="resnet18", choices=["resnet18", "resnet34", "resnet50", "resnet101", "wideresnet"])
+    parser.add_argument("--method", type=str, default="saliencymix", choices=["baseline", "saliencymix"])
 
     parser.add_argument("--data_dir", type=str, default="data")
     parser.add_argument("--epochs", type=int, default=200)
@@ -323,7 +324,7 @@ def main():
     parser.add_argument("--salmix_prob", type=float, default=0.5)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--data_augmentation", action="store_true", default=False)
-    parser.add_argument("--log_dir", type=str, default="logs")
+    parser.add_argument("--outcome_dir", type=str, default="outcome")
     parser.add_argument("--figure_dir", type=str, default="figures")
     parser.add_argument("--checkpoint_dir", type=str, default=None)
 
@@ -334,10 +335,15 @@ def main():
     pad_value = jnp.array(-cfg["mean"] / cfg["std"], dtype=jnp.float32)
 
     if args.checkpoint_dir is None:
-        args.checkpoint_dir = default_checkpoint_dir(args.dataset, args.model, args.seed)
+        args.checkpoint_dir = default_checkpoint_dir(dataset_name, args.model, args.method, args.seed)
 
     print(args)
     print("JAX devices:", jax.devices())
+
+    effective_salmix_prob = 0.0 if args.method == "baseline" else args.salmix_prob
+    dataset_name = f"{args.dataset}_plus" if args.data_augmentation else args.dataset
+    print(f"method: {args.method}, effective_salmix_prob: {effective_salmix_prob}")
+    print(f"experiment dataset name: {dataset_name}")
 
     train_images, train_labels, train_saliency, test_images, test_labels = load_dataset_with_saliency(args.dataset, args.data_dir)
 
@@ -359,21 +365,24 @@ def main():
 
     best_test_acc = 0.0
     args.checkpoint_dir = os.path.abspath(args.checkpoint_dir)
-    args.log_dir = os.path.abspath(args.log_dir)
+    args.outcome_dir = os.path.abspath(args.outcome_dir)
     args.figure_dir = os.path.abspath(args.figure_dir)
 
+    run_figure_dir = os.path.join(args.figure_dir, args.model, dataset_name)
+    run_outcome_dir = os.path.join(args.outcome_dir, args.model, dataset_name)
+
     os.makedirs(args.checkpoint_dir, exist_ok=True)
-    os.makedirs(args.log_dir, exist_ok=True)
-    os.makedirs(args.figure_dir, exist_ok=True)
+    os.makedirs(run_outcome_dir, exist_ok=True)
+    os.makedirs(run_figure_dir, exist_ok=True)
 
     checkpointer = ocp.PyTreeCheckpointer()
-    csv_path = os.path.join(args.log_dir, f"{args.dataset}_{args.model}_seed{args.seed}.csv")
+    csv_path = os.path.join(run_outcome_dir, f"{args.method}_seed{args.seed}.csv")
 
     csv_file = open(csv_path, "w", newline="")
     csv_writer = csv.DictWriter(
         csv_file,
         fieldnames=[
-            "epoch", "dataset", "model",
+            "epoch", "dataset", "model", "method",
             "train_loss", "train_acc", "test_loss", "test_acc", "test_error",
             "best_test_acc", "mean_lam", "epoch_time_sec", "total_time_sec",
             "seed", "data_augmentation", "learning_rate", "batch_size", "beta", "salmix_prob",
@@ -382,8 +391,8 @@ def main():
     csv_writer.writeheader()
 
     print(f"checkpoint_dir: {args.checkpoint_dir}")
-    print(f"logging to: {csv_path}")
-    print(f"figures will be saved to: {args.figure_dir}")
+    print(f"outcome csv: {csv_path}")
+    print(f"figures will be saved to: {run_figure_dir}")
 
     train_total = (len(train_images) + args.batch_size - 1) // args.batch_size
     test_total = (len(test_images) + args.batch_size - 1) // args.batch_size
@@ -407,7 +416,7 @@ def main():
                     batch=batch,
                     key=step_key,
                     beta=args.beta,
-                    salmix_prob=args.salmix_prob,
+                    salmix_prob=effective_salmix_prob,
                     data_augmentation=args.data_augmentation,
                     pad_value=pad_value,
                     num_classes=num_classes,
@@ -461,8 +470,9 @@ def main():
             csv_writer.writerow(
                 {
                     "epoch": epoch + 1,
-                    "dataset": args.dataset,
+                    "dataset": dataset_name,
                     "model": args.model,
+                    "method": args.method,
                     "train_loss": train_loss,
                     "train_acc": train_acc,
                     "test_loss": test_loss,
@@ -477,7 +487,7 @@ def main():
                     "learning_rate": args.learning_rate,
                     "batch_size": args.batch_size,
                     "beta": args.beta,
-                    "salmix_prob": args.salmix_prob,
+                    "salmix_prob": float(effective_salmix_prob),
                 }
             )
             csv_file.flush()
@@ -487,7 +497,7 @@ def main():
         csv_file.close()
 
     if len(history["epoch"]) > 0:
-        save_training_plots(history, args.figure_dir, args.dataset, args.model, args.seed)
+        save_training_plots(history, run_figure_dir, args.method, args.seed)
 
     final_total_time = time.time() - total_start_time
     print(f"Training finished. Approx total time: {final_total_time / 60:.2f} min ({final_total_time:.1f} sec).")
